@@ -12,12 +12,12 @@
 void send_command_to_server(const char *command) {
     int fifo_fd = open(FIFO_PATH, O_WRONLY);
     if (fifo_fd < 0) {
-        perror("Erro ao abrir o FIFO");
+        perror("Opening Error FIFO");
         exit(EXIT_FAILURE);
     }
 
     if (write(fifo_fd, command, strlen(command)) < 0) {
-        perror("Erro ao escrever no FIFO");
+        perror("Writing Error FIFO");
         close(fifo_fd);
         exit(EXIT_FAILURE);
     }
@@ -35,19 +35,19 @@ int main() {
             if (strncmp(input, "echo", 4) == 0) {
                 if (strlen(input) > 5) {
                     send_command_to_server(input);
-                    printf("(Mensagem enviada ao servidor)\n");
+                    printf("(Mensagem sent)\n");
                 } else {
                     printf("(missing arguments - echo <arg>)\n");
                 }
             } else if (strncmp(input, "execute", 7) == 0) {
                 if (strlen(input) > 8) {
                     send_command_to_server(input);
-                    printf("(comando executado - ver servidor)\n");
+                    printf("(command executed)\n");
                 } else {
                     printf("(missing arguments - execute <command>)\n");
                 }
             } else {
-                printf("Comando desconhecido. Use 'echo' ou 'execute'.\n");
+                printf("Command unknown. Use 'echo' or 'execute'.\n");
             }
         }
     }

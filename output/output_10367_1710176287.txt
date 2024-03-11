@@ -1,0 +1,7 @@
+Makefile
+bin
+include
+obj
+output
+src
+tmp
