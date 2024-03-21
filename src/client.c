@@ -28,27 +28,25 @@ void send_command_to_server(const char *command) {
 int main() {
     char input[BUFFER_SIZE];
 
-    while (1) {
-        if (fgets(input, BUFFER_SIZE, stdin) != NULL) {
-            input[strcspn(input, "\n")] = 0;
+    if (fgets(input, BUFFER_SIZE, stdin) != NULL) {
+        input[strcspn(input, "\n")] = 0;
 
-            if (strncmp(input, "echo", 4) == 0) {
-                if (strlen(input) > 5) {
-                    send_command_to_server(input);
-                    printf("(Mensagem sent)\n");
-                } else {
-                    printf("(missing arguments - echo <arg>)\n");
-                }
-            } else if (strncmp(input, "execute", 7) == 0) {
-                if (strlen(input) > 8) {
-                    send_command_to_server(input);
-                    printf("(command executed)\n");
-                } else {
-                    printf("(missing arguments - execute <command>)\n");
-                }
+        if (strncmp(input, "echo", 4) == 0) {
+            if (strlen(input) > 5) {
+                send_command_to_server(input);
+                printf("(Mensagem sent)\n");
             } else {
-                printf("Command unknown. Use 'echo' or 'execute'.\n");
+                printf("(missing arguments - echo <arg>)\n");
             }
+        } else if (strncmp(input, "execute", 7) == 0) {
+            if (strlen(input) > 8) {
+                send_command_to_server(input);
+                printf("(command executed)\n");
+            } else {
+                printf("(missing arguments - execute <command>)\n");
+            }
+        } else {
+            printf("Command unknown. Use 'echo' or 'execute'.\n");
         }
     }
 
