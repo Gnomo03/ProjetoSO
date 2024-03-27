@@ -6,17 +6,20 @@
 #include <sys/stat.h>
 #include <sys/types.h>
 
-#define FIFO_PATH "/tmp/server_fifo"
+#define FIFO_PATH "/home/sensei/Documents/GitHub/ProjetoSO/tmp/server_fifo"
 #define BUFFER_SIZE 1024
 
-void send_command_to_server(const char *command) {
+void send_command_to_server(const char *command)
+{
     int fifo_fd = open(FIFO_PATH, O_WRONLY);
-    if (fifo_fd < 0) {
+    if (fifo_fd < 0)
+    {
         perror("Opening Error FIFO");
         exit(EXIT_FAILURE);
     }
 
-    if (write(fifo_fd, command, strlen(command)) < 0) {
+    if (write(fifo_fd, command, strlen(command)) < 0)
+    {
         perror("Writing Error FIFO");
         close(fifo_fd);
         exit(EXIT_FAILURE);
@@ -25,27 +28,40 @@ void send_command_to_server(const char *command) {
     close(fifo_fd);
 }
 
-int main() {
+int main()
+{
     char input[BUFFER_SIZE];
 
-    if (fgets(input, BUFFER_SIZE, stdin) != NULL) {
+    if (fgets(input, BUFFER_SIZE, stdin) != NULL)
+    {
         input[strcspn(input, "\n")] = 0;
 
-        if (strncmp(input, "echo", 4) == 0) {
-            if (strlen(input) > 5) {
+        if (strncmp(input, "echo", 4) == 0)
+        {
+            if (strlen(input) > 5)
+            {
                 send_command_to_server(input);
                 printf("(Mensagem sent)\n");
-            } else {
+            }
+            else
+            {
                 printf("(missing arguments - echo <arg>)\n");
             }
-        } else if (strncmp(input, "execute", 7) == 0) {
-            if (strlen(input) > 8) {
+        }
+        else if (strncmp(input, "execute", 7) == 0)
+        {
+            if (strlen(input) > 8)
+            {
                 send_command_to_server(input);
                 printf("(command executed)\n");
-            } else {
+            }
+            else
+            {
                 printf("(missing arguments - execute <command>)\n");
             }
-        } else {
+        }
+        else
+        {
             printf("Command unknown. Use 'echo' or 'execute'.\n");
         }
     }
