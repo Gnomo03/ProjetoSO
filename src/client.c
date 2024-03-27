@@ -28,42 +28,34 @@ void send_command_to_server(const char *command)
     close(fifo_fd);
 }
 
-int main()
+int main(int argc, char *argv[])
 {
-    char input[BUFFER_SIZE];
-
-    if (fgets(input, BUFFER_SIZE, stdin) != NULL)
+    if (argc < 3)
     {
-        input[strcspn(input, "\n")] = 0;
+        printf("Usage: %s <command_type> <command>\n", argv[0]);
+        return EXIT_FAILURE;
+    }
 
-        if (strncmp(input, "echo", 4) == 0)
+    char command[BUFFER_SIZE];
+
+    if (strcmp(argv[1], "echo") == 0 || strcmp(argv[1], "execute") == 0)
+    {
+        snprintf(command, BUFFER_SIZE, "%s %s", argv[1], argv[2]);
+        send_command_to_server(command);
+
+        if (strcmp(argv[1], "echo") == 0)
         {
-            if (strlen(input) > 5)
-            {
-                send_command_to_server(input);
-                printf("(Mensagem sent)\n");
-            }
-            else
-            {
-                printf("(missing arguments - echo <arg>)\n");
-            }
+            printf("(Message sent)\n");
         }
-        else if (strncmp(input, "execute", 7) == 0)
+        else if (strcmp(argv[1], "execute") == 0)
         {
-            if (strlen(input) > 8)
-            {
-                send_command_to_server(input);
-                printf("(command executed)\n");
-            }
-            else
-            {
-                printf("(missing arguments - execute <command>)\n");
-            }
+            printf("(Command executed)\n");
         }
-        else
-        {
-            printf("Command unknown. Use 'echo' or 'execute'.\n");
-        }
+    }
+    else
+    {
+        printf("Command type must be 'echo' or 'execute'\n");
+        return EXIT_FAILURE;
     }
 
     return EXIT_SUCCESS;
