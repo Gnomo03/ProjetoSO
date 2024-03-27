@@ -29,13 +29,15 @@ void process_command(const char *cmd)
 {
     char *args[MAX_SZ];
     char output_path[MAX_SZ];
-    snprintf(output_path, MAX_SZ, "%s/output_%d_%ld.txt", output_folder, getpid(), time(NULL));
+    time_t start_time, end_time;
+    FILE *output_file;
 
-    FILE *output_file = fopen(output_path, "w");
+    snprintf(output_path, MAX_SZ, "%s/execution_log.txt", output_folder);
+    output_file = fopen(output_path, "a");
     if (output_file == NULL)
     {
-        printf("Failed to open output file\n");
-        exit(1);
+        fprintf(stderr, "Failed to open output file\n");
+        exit(EXIT_FAILURE);
     }
 
     char *clean_cmd = strstr(cmd, "execute ");
@@ -53,35 +55,32 @@ void process_command(const char *cmd)
     }
     args[argCount] = NULL;
 
-    if (strcmp(args[0], "ls") == 0 || (strcmp(args[0], "cat") == 0 && argCount > 1))
+    start_time = time(NULL);
+
+    pid_t pid = fork();
+    if (pid == 0)
     {
-        pid_t pid = fork();
-        if (pid == 0)
-        {
-            dup2(fileno(output_file), STDOUT_FILENO);
-            execvp(args[0], args);
-            fprintf(stderr, "Failed to execute command\n");
-            exit(1);
-        }
-        else if (pid > 0)
-        {
-            int status;
-            waitpid(pid, &status, 0);
-        }
-        else
-        {
-            fprintf(stderr, "Fork failed\n");
-            exit(1);
-        }
+        dup2(fileno(output_file), STDOUT_FILENO);
+        dup2(fileno(output_file), STDERR_FILENO);
+        execvp(args[0], args);
+        fprintf(stderr, "Failed to execute command\n");
+        exit(EXIT_FAILURE);
     }
-    else if (strcmp(args[0], "cat") == 0 && argCount <= 1)
+    else if (pid > 0)
     {
-        fprintf(output_file, "Error: 'cat' command requires at least one argument.\n");
+        int status;
+        waitpid(pid, &status, 0);
     }
     else
     {
-        fprintf(output_file, "Command '%s' not allowed or unknown.\n", args[0]);
+        fprintf(stderr, "Fork failed\n");
+        exit(EXIT_FAILURE);
     }
+
+    end_time = time(NULL);
+
+    // Registro do tempo de execução e identificador da tarefa no mesmo arquivo
+    fprintf(output_file, "Task ID: %ld, Execution Time: %ld seconds\n", (long)pid, (long)(end_time - start_time));
 
     fclose(output_file);
 }
@@ -99,7 +98,7 @@ void setup_fifo(const char *fifo_path)
     if (fifo_fd < 0)
     {
         perror("Failed to open FIFO");
-        exit(1);
+        exit(EXIT_FAILURE);
     }
 
     while (1)
