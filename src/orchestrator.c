@@ -60,6 +60,20 @@ void enqueue_task(Command *command)
     }
 }
 
+Task *dequeue_task()
+{
+    if (task_queue == NULL)
+    {
+        return NULL;
+    }
+    else
+    {
+        Task *temp = task_queue;
+        task_queue = task_queue->next;
+        return temp;
+    }
+}
+
 void process_command(Command *command)
 {
     char output_path[MAX_SZ];
@@ -105,13 +119,6 @@ void process_command(Command *command)
     fprintf(output_file, "Task ID: %d, Execution Time: %ld seconds\n", task_id, (long)(end_time - start_time));
 
     fclose(output_file);
-
-    if (task_queue != NULL)
-    {
-        Task *temp = task_queue;
-        task_queue = task_queue->next;
-        free(temp);
-    }
 }
 
 void parse_command(const char *input, Command *command)
@@ -169,9 +176,12 @@ void setup_fifo(const char *fifo_path)
             }
         }
 
-        if (task_queue != NULL)
+        Task *current_task = dequeue_task();
+        if (current_task != NULL)
         {
-            process_command(task_queue->command);
+            process_command(current_task->command);
+            free(current_task->command);
+            free(current_task);
         }
     }
 
