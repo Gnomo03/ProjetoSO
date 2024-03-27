@@ -10,8 +10,52 @@
 
 #define MAX_SZ 1024
 
+typedef struct Task
+{
+    char cmd[MAX_SZ];
+    struct Task *next;
+} Task;
+
 char *output_folder;
 int task_counter = 0;
+Task *task_queue = NULL;
+
+void enqueue_task(const char *cmd)
+{
+    Task *new_task = malloc(sizeof(Task));
+    if (new_task == NULL)
+    {
+        fprintf(stderr, "Memory allocation failed\n");
+        exit(EXIT_FAILURE);
+    }
+    strcpy(new_task->cmd, cmd);
+    new_task->next = NULL;
+
+    if (task_queue == NULL)
+    {
+        task_queue = new_task;
+    }
+    else
+    {
+        Task *current = task_queue;
+        while (current->next != NULL)
+        {
+            current = current->next;
+        }
+        current->next = new_task;
+    }
+}
+
+void dequeue_task()
+{
+    if (task_queue == NULL)
+    {
+        return;
+    }
+    Task *temp = task_queue;
+    task_queue = task_queue->next;
+    free(temp);
+}
 
 void ensure_output_folder_exists(const char *folder)
 {
@@ -85,6 +129,11 @@ void process_command(const char *cmd)
     fprintf(output_file, "Task ID: %d, Execution Time: %ld seconds\n", task_id, (long)(end_time - start_time));
 
     fclose(output_file);
+
+    if (task_queue != NULL)
+    {
+        dequeue_task();
+    }
 }
 
 void setup_fifo(const char *fifo_path)
@@ -110,7 +159,13 @@ void setup_fifo(const char *fifo_path)
         {
             buffer[num_bytes_read] = '\0';
             printf("Received: %s\n", buffer);
-            process_command(buffer);
+            enqueue_task(buffer);
+        }
+
+        if (task_queue != NULL)
+        {
+            process_command(task_queue->cmd);
+            dequeue_task();
         }
     }
     close(fifo_fd);
