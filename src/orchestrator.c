@@ -76,19 +76,14 @@ void process_command(Command *command)
         exit(EXIT_FAILURE);
     }
 
-    // Execution logic
     start_time = time(NULL);
 
     pid_t pid = fork();
     if (pid == 0)
     {
-        // Redirect stdout and stderr to the output file
         dup2(fileno(output_file), STDOUT_FILENO);
         dup2(fileno(output_file), STDERR_FILENO);
 
-        printf("Args: %s, Flag: %s, Time: %d \n", command->args, command->flag, command->time);
-
-        // Execute the command via shell
         execlp("/bin/bash", "/bin/bash", "-c", command->args, NULL);
 
         fprintf(stderr, "Failed to execute command\n");
@@ -107,14 +102,12 @@ void process_command(Command *command)
 
     end_time = time(NULL);
 
-    // Log task execution time
     fprintf(output_file, "Task ID: %d, Execution Time: %ld seconds\n", task_id, (long)(end_time - start_time));
 
     fclose(output_file);
 
     if (task_queue != NULL)
     {
-        // Dequeue task
         Task *temp = task_queue;
         task_queue = task_queue->next;
         free(temp);
@@ -143,8 +136,6 @@ void setup_fifo(const char *fifo_path)
 
     mkfifo(fifo_path, 0666);
 
-    printf("Waiting for commands...\n");
-
     fifo_fd = open(fifo_path, O_RDONLY);
     if (fifo_fd < 0)
     {
@@ -158,8 +149,6 @@ void setup_fifo(const char *fifo_path)
         if (num_bytes_read > 0)
         {
             buffer[num_bytes_read] = '\0';
-            printf("Received command: %s\n", buffer); // Debugging: Print received command
-
             Command command;
             parse_command(buffer, &command);
 
@@ -176,8 +165,6 @@ void setup_fifo(const char *fifo_path)
             }
             else if (command.type == STATUS)
             {
-                // Handle status command
-                // You can implement the status command logic here
                 printf("Status command received\n");
             }
         }
