@@ -11,6 +11,7 @@
 #define MAX_SZ 1024
 
 char *output_folder;
+int task_counter = 0;
 
 void ensure_output_folder_exists(const char *folder)
 {
@@ -31,6 +32,8 @@ void process_command(const char *cmd)
     char output_path[MAX_SZ];
     time_t start_time, end_time;
     FILE *output_file;
+
+    int task_id = ++task_counter;
 
     snprintf(output_path, MAX_SZ, "%s/execution_log.txt", output_folder);
     output_file = fopen(output_path, "a");
@@ -79,8 +82,7 @@ void process_command(const char *cmd)
 
     end_time = time(NULL);
 
-    // Registro do tempo de execução e identificador da tarefa no mesmo arquivo
-    fprintf(output_file, "Task ID: %ld, Execution Time: %ld seconds\n", (long)pid, (long)(end_time - start_time));
+    fprintf(output_file, "Task ID: %d, Execution Time: %ld seconds\n", task_id, (long)(end_time - start_time));
 
     fclose(output_file);
 }
