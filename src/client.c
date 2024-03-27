@@ -30,31 +30,41 @@ void send_command_to_server(const char *command)
 
 int main(int argc, char *argv[])
 {
-    if (argc < 3)
+    if (argc < 5)
     {
-        printf("Usage: %s <command_type> <command>\n", argv[0]);
+        printf("Usage: %s <command_type> <duration> -u \"program args\" or -p \"program1 | program2 | ...\"\n", argv[0]);
         return EXIT_FAILURE;
     }
 
     char command[BUFFER_SIZE];
 
-    if (strcmp(argv[1], "echo") == 0 || strcmp(argv[1], "execute") == 0)
+    if (strcmp(argv[1], "execute") == 0)
     {
-        snprintf(command, BUFFER_SIZE, "%s %s", argv[1], argv[2]);
-        send_command_to_server(command);
+        int duration = atoi(argv[2]);
+        char *flag = argv[3];
+        char *program = argv[4];
 
-        if (strcmp(argv[1], "echo") == 0)
+        // Check for valid flag
+        if (strcmp(flag, "-u") == 0 || strcmp(flag, "-p") == 0)
         {
-            printf("(Message sent)\n");
+            snprintf(command, BUFFER_SIZE, "%s %d %s \"%s\"", argv[1], duration, flag, program); // Include quotes around program arguments
+            send_command_to_server(command);
+            printf("Task submitted.\n");
         }
-        else if (strcmp(argv[1], "execute") == 0)
+        else
         {
-            printf("(Command executed)\n");
+            printf("Invalid flag. Use -u for individual program execution or -p for pipeline execution.\n");
+            return EXIT_FAILURE;
         }
+    }
+    else if (strcmp(argv[1], "status") == 0)
+    {
+        send_command_to_server(argv[1]);
+        printf("Status queried.\n");
     }
     else
     {
-        printf("Command type must be 'echo' or 'execute'\n");
+        printf("Invalid command type. Use 'execute' or 'status'.\n");
         return EXIT_FAILURE;
     }
 

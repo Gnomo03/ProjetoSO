@@ -10,9 +10,23 @@
 
 #define MAX_SZ 1024
 
+typedef enum
+{
+    EXECUTE,
+    STATUS
+} CommandType;
+
+typedef struct
+{
+    CommandType type;
+    int time;
+    char flag[MAX_SZ];
+    char args[MAX_SZ];
+} Command;
+
 typedef struct Task
 {
-    char cmd[MAX_SZ];
+    Command *command;
     struct Task *next;
 } Task;
 
@@ -20,7 +34,7 @@ char *output_folder;
 int task_counter = 0;
 Task *task_queue = NULL;
 
-void enqueue_task(const char *cmd)
+void enqueue_task(Command *command)
 {
     Task *new_task = malloc(sizeof(Task));
     if (new_task == NULL)
@@ -28,7 +42,7 @@ void enqueue_task(const char *cmd)
         fprintf(stderr, "Memory allocation failed\n");
         exit(EXIT_FAILURE);
     }
-    strcpy(new_task->cmd, cmd);
+    new_task->command = command;
     new_task->next = NULL;
 
     if (task_queue == NULL)
@@ -46,33 +60,8 @@ void enqueue_task(const char *cmd)
     }
 }
 
-void dequeue_task()
+void process_command(Command *command)
 {
-    if (task_queue == NULL)
-    {
-        return;
-    }
-    Task *temp = task_queue;
-    task_queue = task_queue->next;
-    free(temp);
-}
-
-void ensure_output_folder_exists(const char *folder)
-{
-    struct stat st = {0};
-    if (stat(folder, &st) == -1)
-    {
-        if (mkdir(folder, 0700) == -1)
-        {
-            fprintf(stderr, "Error creating directory '%s': %s\n", folder, strerror(errno));
-            exit(EXIT_FAILURE);
-        }
-    }
-}
-
-void process_command(const char *cmd)
-{
-    char *args[MAX_SZ];
     char output_path[MAX_SZ];
     time_t start_time, end_time;
     FILE *output_file;
@@ -87,29 +76,21 @@ void process_command(const char *cmd)
         exit(EXIT_FAILURE);
     }
 
-    char *clean_cmd = strstr(cmd, "execute ");
-    if (clean_cmd)
-        clean_cmd += strlen("execute ");
-    else
-        clean_cmd = cmd;
-
-    int argCount = 0;
-    char *token = strtok(clean_cmd, " ");
-    while (token != NULL && argCount < MAX_SZ - 1)
-    {
-        args[argCount++] = token;
-        token = strtok(NULL, " ");
-    }
-    args[argCount] = NULL;
-
+    // Execution logic
     start_time = time(NULL);
 
     pid_t pid = fork();
     if (pid == 0)
     {
+        // Redirect stdout and stderr to the output file
         dup2(fileno(output_file), STDOUT_FILENO);
         dup2(fileno(output_file), STDERR_FILENO);
-        execvp(args[0], args);
+
+        printf("Args: %s, Flag: %s, Time: %d \n", command->args, command->flag, command->time);
+
+        // Execute the command via shell
+        execlp("/bin/bash", "/bin/bash", "-c", command->args, NULL);
+
         fprintf(stderr, "Failed to execute command\n");
         exit(EXIT_FAILURE);
     }
@@ -126,14 +107,33 @@ void process_command(const char *cmd)
 
     end_time = time(NULL);
 
+    // Log task execution time
     fprintf(output_file, "Task ID: %d, Execution Time: %ld seconds\n", task_id, (long)(end_time - start_time));
 
     fclose(output_file);
 
     if (task_queue != NULL)
     {
-        dequeue_task();
+        // Dequeue task
+        Task *temp = task_queue;
+        task_queue = task_queue->next;
+        free(temp);
     }
+}
+
+void parse_command(const char *input, Command *command)
+{
+    char cmd[MAX_SZ], args[MAX_SZ];
+    int time;
+    sscanf(input, "%s %d %s \"%[^\"]\"", cmd, &time, command->flag, args);
+
+    if (strcmp(cmd, "execute") == 0)
+        command->type = EXECUTE;
+    else if (strcmp(cmd, "status") == 0)
+        command->type = STATUS;
+
+    command->time = time;
+    strcpy(command->args, args);
 }
 
 void setup_fifo(const char *fifo_path)
@@ -158,18 +158,51 @@ void setup_fifo(const char *fifo_path)
         if (num_bytes_read > 0)
         {
             buffer[num_bytes_read] = '\0';
-            printf("Received: %s\n", buffer);
-            enqueue_task(buffer);
+            printf("Received command: %s\n", buffer); // Debugging: Print received command
+
+            Command command;
+            parse_command(buffer, &command);
+
+            if (command.type == EXECUTE)
+            {
+                Command *new_command = malloc(sizeof(Command));
+                if (new_command == NULL)
+                {
+                    fprintf(stderr, "Memory allocation failed\n");
+                    exit(EXIT_FAILURE);
+                }
+                memcpy(new_command, &command, sizeof(Command));
+                enqueue_task(new_command);
+            }
+            else if (command.type == STATUS)
+            {
+                // Handle status command
+                // You can implement the status command logic here
+                printf("Status command received\n");
+            }
         }
 
         if (task_queue != NULL)
         {
-            process_command(task_queue->cmd);
-            dequeue_task();
+            process_command(task_queue->command);
         }
     }
+
     close(fifo_fd);
     unlink(fifo_path);
+}
+
+void ensure_output_folder_exists(const char *folder)
+{
+    struct stat st = {0};
+    if (stat(folder, &st) == -1)
+    {
+        if (mkdir(folder, 0700) == -1)
+        {
+            fprintf(stderr, "Error creating directory '%s': %s\n", folder, strerror(errno));
+            exit(EXIT_FAILURE);
+        }
+    }
 }
 
 int main(int argc, char *argv[])
