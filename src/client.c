@@ -6,17 +6,19 @@
 #include <sys/stat.h>
 #include <sys/types.h>
 
-#define FIFO_PATH "/tmp/server_fifo"
-#define BUFFER_SIZE 1024
+#include </home/david/work/SO/projeto/include/client.h>
 
-void send_command_to_server(const char *command) {
+void send_command_to_server(const char *command)
+{
     int fifo_fd = open(FIFO_PATH, O_WRONLY);
-    if (fifo_fd < 0) {
+    if (fifo_fd < 0)
+    {
         perror("Opening Error FIFO");
         exit(EXIT_FAILURE);
     }
 
-    if (write(fifo_fd, command, strlen(command)) < 0) {
+    if (write(fifo_fd, command, strlen(command)) < 0)
+    {
         perror("Writing Error FIFO");
         close(fifo_fd);
         exit(EXIT_FAILURE);
@@ -25,29 +27,45 @@ void send_command_to_server(const char *command) {
     close(fifo_fd);
 }
 
-int main() {
-    char input[BUFFER_SIZE];
+int main(int argc, char *argv[])
+{
+    if (argc < 5)
+    {
+        printf("Usage: %s <command_type> <duration> -u \"program args\" or -p \"program1 | program2 | ...\"\n", argv[0]);
+        return EXIT_FAILURE;
+    }
 
-    if (fgets(input, BUFFER_SIZE, stdin) != NULL) {
-        input[strcspn(input, "\n")] = 0;
+    static int task_id = 1;
 
-        if (strncmp(input, "echo", 4) == 0) {
-            if (strlen(input) > 5) {
-                send_command_to_server(input);
-                printf("(Mensagem sent)\n");
-            } else {
-                printf("(missing arguments - echo <arg>)\n");
-            }
-        } else if (strncmp(input, "execute", 7) == 0) {
-            if (strlen(input) > 8) {
-                send_command_to_server(input);
-                printf("(command executed)\n");
-            } else {
-                printf("(missing arguments - execute <command>)\n");
-            }
-        } else {
-            printf("Command unknown. Use 'echo' or 'execute'.\n");
+    char command[BUFFER_SIZE];
+
+    if (strcmp(argv[1], "execute") == 0)
+    {
+        int duration = atoi(argv[2]);
+        char *flag = argv[3];
+        char *program = argv[4];
+
+        if (strcmp(flag, "-u") == 0 || strcmp(flag, "-p") == 0)
+        {
+            snprintf(command, BUFFER_SIZE, "%s %d %s \"%s\"", argv[1], duration, flag, program);
+            send_command_to_server(command);
+            printf("TASK %d Received.\n", task_id++);
         }
+        else
+        {
+            printf("Invalid flag. Use -u for individual program execution or -p for pipeline execution.\n");
+            return EXIT_FAILURE;
+        }
+    }
+    else if (strcmp(argv[1], "status") == 0)
+    {
+        send_command_to_server(argv[1]);
+        printf("Status queried.\n");
+    }
+    else
+    {
+        printf("Invalid command type. Use 'execute' or 'status'.\n");
+        return EXIT_FAILURE;
     }
 
     return EXIT_SUCCESS;
