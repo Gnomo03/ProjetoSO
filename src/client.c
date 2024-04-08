@@ -35,8 +35,6 @@ int main(int argc, char *argv[])
         return EXIT_FAILURE;
     }
 
-    static int task_id = 1;
-
     char command[BUFFER_SIZE];
 
     if (strcmp(argv[1], "execute") == 0)
@@ -49,7 +47,7 @@ int main(int argc, char *argv[])
         {
             snprintf(command, BUFFER_SIZE, "%s %d %s \"%s\"", argv[1], duration, flag, program);
             send_command_to_server(command);
-            printf("TASK %d Received.\n", task_id++);
+            printf("TASK Received.\n");
         }
         else
         {

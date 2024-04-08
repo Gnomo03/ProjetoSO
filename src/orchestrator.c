@@ -62,7 +62,9 @@ void process_command(Command *command)
 
     int task_id = ++task_counter;
 
-    snprintf(output_path, MAX_SZ, "%s/execution_log.txt", output_folder);
+    // Modifica o caminho para incluir o ID da tarefa no nome do ficheiro
+    snprintf(output_path, MAX_SZ, "%s/execution_log_TASK%d.txt", output_folder, task_id);
+    
     output_file = fopen(output_path, "a");
     if (output_file == NULL)
     {
@@ -75,11 +77,14 @@ void process_command(Command *command)
     pid_t pid = fork();
     if (pid == 0)
     {
+        // Redireciona tanto a saída padrão quanto o erro padrão para o ficheiro de saída
         dup2(fileno(output_file), STDOUT_FILENO);
         dup2(fileno(output_file), STDERR_FILENO);
 
+        // Executa o comando
         execlp("/bin/bash", "/bin/bash", "-c", command->args, NULL);
 
+        // Caso a execução falhe, registra no mesmo ficheiro de saída
         fprintf(stderr, "Failed to execute command\n");
         exit(EXIT_FAILURE);
     }
@@ -96,6 +101,7 @@ void process_command(Command *command)
 
     end_time = time(NULL);
 
+    // Registra o ID da tarefa e o tempo de execução no ficheiro de saída
     fprintf(output_file, "Task ID: %d, Execution Time: %ld seconds\n", task_id, (long)(end_time - start_time));
 
     fclose(output_file);
