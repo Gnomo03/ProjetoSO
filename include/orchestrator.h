@@ -11,6 +11,12 @@ typedef enum
     STATUS
 } CommandType;
 
+typedef enum {
+    WAITING,
+    RUNNING,
+    COMPLETED
+} TaskState;
+
 typedef struct
 {
     CommandType type;
@@ -21,8 +27,13 @@ typedef struct
 
 typedef struct Task
 {
+    int task_id; 
     Command *command;
     struct Task *next;
+    TaskState state;
+    time_t start_time;
+    time_t end_time;
+
 } Task;
 
 void execute_command(const char *cmd);
@@ -31,5 +42,6 @@ void parse_command(const char *input, Command *command);
 void process_command(Command *command);
 Task *dequeue_task();
 void enqueue_task(Command *command);
+char *get_task_status();
 
 #endif

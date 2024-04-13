@@ -8,11 +8,61 @@
 #include <errno.h>
 #include <sys/wait.h>
 
-#include </home/david/work/SO/projeto/include/orchestrator.h>
+#include "../include/orchestrator.h"
 
 char *output_folder;
 int task_counter = 0;
 Task *task_queue = NULL;
+
+/*void process_status_request() {
+    int fifo_fd = open("/tmp/server_fifo", O_WRONLY);
+    if (fifo_fd < 0) {
+        perror("Failed to open FIFO for writing status response");
+        return;
+    }
+
+    char status_response[8192]; // Large buffer for detailed statuses
+    int response_len = 0;
+    Task *current = task_queue;
+
+    response_len += snprintf(status_response + response_len, sizeof(status_response) - response_len, "Executing\n");
+    while (current) {
+        char task_details[2048];
+        if (current->state == RUNNING) {
+            snprintf(task_details, sizeof(task_details), "%d %s\n", current->task_id, current->command->args);
+            strcat(status_response, task_details);
+        }
+        current = current->next;
+    }
+
+    strcat(status_response, "Scheduled\n");
+    current = task_queue;
+    while (current) {
+        char task_details[1024];
+        if (current->state == WAITING) {
+            snprintf(task_details, sizeof(task_details), "%d %s\n", current->task_id, current->command->args);
+            strcat(status_response, task_details);
+        }
+        current = current->next;
+    }
+
+    strcat(status_response, "Completed\n");
+    current = task_queue;
+    while (current) {
+        char task_details[1024];
+        if (current->state == COMPLETED) {
+            snprintf(task_details, sizeof(task_details), "%d %s %ld ms\n", current->task_id, current->command->args, (long)(current->end_time - current->start_time));
+            strcat(status_response, task_details);
+        }
+        current = current->next;
+    }
+
+    if (write(fifo_fd, status_response, strlen(status_response) + 1) < 0) {
+        perror("Failed to write status response to FIFO");
+    }
+
+    close(fifo_fd);
+}*/
 
 void enqueue_task(Command *command)
 {
@@ -62,7 +112,6 @@ void process_command(Command *command)
 
     int task_id = ++task_counter;
 
-    // Modifica o caminho para incluir o ID da tarefa no nome do ficheiro
     snprintf(output_path, MAX_SZ, "%s/execution_log_TASK%d.txt", output_folder, task_id);
     
     output_file = fopen(output_path, "a");
@@ -77,14 +126,24 @@ void process_command(Command *command)
     pid_t pid = fork();
     if (pid == 0)
     {
-        // Redireciona tanto a saída padrão quanto o erro padrão para o ficheiro de saída
+        // Redirect stdout and stderr to the output file
         dup2(fileno(output_file), STDOUT_FILENO);
         dup2(fileno(output_file), STDERR_FILENO);
 
-        // Executa o comando
-        execlp("/bin/bash", "/bin/bash", "-c", command->args, NULL);
+        // Prepare the arguments for execvp
+        int argc = 0;
+        char *args[256]; // adjust size as needed
+        char *token = strtok(command->args, " ");
+        while (token != NULL) {
+            args[argc++] = token;
+            token = strtok(NULL, " ");
+        }
+        args[argc] = NULL; // null terminate the array of arguments
 
-        // Caso a execução falhe, registra no mesmo ficheiro de saída
+        // Execute the command
+        execvp(args[0], args);
+
+        // If execvp fails, it returns, and the error is handled below
         fprintf(stderr, "Failed to execute command\n");
         exit(EXIT_FAILURE);
     }
@@ -101,7 +160,6 @@ void process_command(Command *command)
 
     end_time = time(NULL);
 
-    // Registra o ID da tarefa e o tempo de execução no ficheiro de saída
     fprintf(output_file, "Task ID: %d, Execution Time: %ld seconds\n", task_id, (long)(end_time - start_time));
 
     fclose(output_file);
@@ -128,7 +186,6 @@ void setup_fifo(const char *fifo_path)
     int fifo_fd;
 
     mkfifo(fifo_path, 0666);
-
     fifo_fd = open(fifo_path, O_RDONLY);
     if (fifo_fd < 0)
     {
@@ -158,7 +215,7 @@ void setup_fifo(const char *fifo_path)
             }
             else if (command.type == STATUS)
             {
-                printf("Status command received\n");
+                //process_status_request();
             }
         }
 
