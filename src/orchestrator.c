@@ -13,82 +13,102 @@
 char *output_folder;
 int task_counter = 0;
 Task *task_queue = NULL;
+Task *archive_queue = NULL;
 
-/*void process_status_request() {
-    int fifo_fd = open("/tmp/server_fifo", O_WRONLY);
-    if (fifo_fd < 0) {
-        perror("Failed to open FIFO for writing status response");
+void setup_response_fifo() {
+    unlink(RESPONSE_FIFO_PATH);
+    if (mkfifo(RESPONSE_FIFO_PATH, 0666) != 0) {
+        perror("Failed to create RESPONSE_FIFO");
+        exit(EXIT_FAILURE);
+    }
+}
+
+void send_status_over_fifo() {
+    int fd = open(RESPONSE_FIFO_PATH, O_WRONLY);
+    if (fd == -1) {
+        perror("Open RESPONSE_FIFO failed");
         return;
     }
 
-    char status_response[8192]; // Large buffer for detailed statuses
-    int response_len = 0;
-    Task *current = task_queue;
+    printf("RESPONSE_FIFO opened successfully for writing.\n");
 
-    response_len += snprintf(status_response + response_len, sizeof(status_response) - response_len, "Executing\n");
-    while (current) {
-        char task_details[2048];
-        if (current->state == RUNNING) {
-            snprintf(task_details, sizeof(task_details), "%d %s\n", current->task_id, current->command->args);
-            strcat(status_response, task_details);
-        }
+    Task *current = archive_queue;
+    if(current == NULL){
+        printf("No tasks in the queue.\n");
+        dprintf(fd, "No tasks in the queue.\n");
+        close(fd);  // Close the FIFO here
+        return;
+    }
+    while (current != NULL) {
+        printf("Sending status: Task %d: %s\n", current->task_id, 
+              (current->status == SCHEDULED) ? "Scheduled" :
+              (current->status == EXECUTING) ? "Executing" :
+              (current->status == COMPLETED) ? "Completed" : "Failed");
+        dprintf(fd, "Task %d: %s\n", current->task_id, 
+                                    (current->status == SCHEDULED) ? "Scheduled" : 
+                                    (current->status == EXECUTING) ? "Executing" :
+                                    (current->status == COMPLETED) ? "Completed" : "Failed");
         current = current->next;
     }
 
-    strcat(status_response, "Scheduled\n");
-    current = task_queue;
-    while (current) {
-        char task_details[1024];
-        if (current->state == WAITING) {
-            snprintf(task_details, sizeof(task_details), "%d %s\n", current->task_id, current->command->args);
-            strcat(status_response, task_details);
-        }
-        current = current->next;
-    }
+    close(fd);  // Ensure the FIFO is closed after all writes
+}
 
-    strcat(status_response, "Completed\n");
-    current = task_queue;
-    while (current) {
-        char task_details[1024];
-        if (current->state == COMPLETED) {
-            snprintf(task_details, sizeof(task_details), "%d %s %ld ms\n", current->task_id, current->command->args, (long)(current->end_time - current->start_time));
-            strcat(status_response, task_details);
-        }
-        current = current->next;
-    }
 
-    if (write(fifo_fd, status_response, strlen(status_response) + 1) < 0) {
-        perror("Failed to write status response to FIFO");
-    }
-
-    close(fifo_fd);
-}*/
-
-void enqueue_task(Command *command)
-{
+void enqueue_task(Command *command) {
+    // Create a new task for the processing queue
     Task *new_task = malloc(sizeof(Task));
-    if (new_task == NULL)
-    {
-        fprintf(stderr, "Memory allocation failed\n");
+    if (new_task == NULL) {
+        fprintf(stderr, "Memory allocation failed for new task\n");
         exit(EXIT_FAILURE);
     }
     new_task->command = command;
+    new_task->status = SCHEDULED;
+    new_task->task_id = ++task_counter;
     new_task->next = NULL;
 
-    if (task_queue == NULL)
-    {
+    // Enqueue in processing queue
+    if (task_queue == NULL) {
         task_queue = new_task;
-    }
-    else
-    {
+    } else {
         Task *current = task_queue;
-        while (current->next != NULL)
-        {
+        while (current->next != NULL) {
             current = current->next;
         }
         current->next = new_task;
     }
+
+    // Create a separate task for the archive queue to maintain a history
+    Task *archive_task = malloc(sizeof(Task));
+    if (archive_task == NULL) {
+        fprintf(stderr, "Memory allocation failed for archive task\n");
+        exit(EXIT_FAILURE);
+    }
+    // Deep copy the task, need to ensure deep copy of command if necessary
+    *archive_task = *new_task;
+    archive_task->command = malloc(sizeof(Command));
+    if (archive_task->command == NULL) {
+        fprintf(stderr, "Memory allocation failed for command in archive task\n");
+        exit(EXIT_FAILURE);
+    }
+    *archive_task->command = *command;  // Shallow copy is sufficient if command fields are simple types
+
+    // Enqueue in archive queue
+    if (archive_queue == NULL) {
+        archive_queue = archive_task;
+    } else {
+        Task *current_archive = archive_queue;
+        while (current_archive->next != NULL) {
+            current_archive = current_archive->next;
+        }
+        current_archive->next = archive_task;
+    }
+
+    printf("Task ID %d enqueued: %s\n", new_task->task_id, command->args);
 }
+
+
+
 
 Task *dequeue_task()
 {
@@ -110,7 +130,7 @@ void process_command(Command *command)
     time_t start_time, end_time;
     FILE *output_file;
 
-    int task_id = ++task_counter;
+    int task_id = task_counter;
 
     snprintf(output_path, MAX_SZ, "%s/execution_log_TASK%d.txt", output_folder, task_id);
     
@@ -186,6 +206,7 @@ void setup_fifo(const char *fifo_path)
     int fifo_fd;
 
     mkfifo(fifo_path, 0666);
+
     fifo_fd = open(fifo_path, O_RDONLY);
     if (fifo_fd < 0)
     {
@@ -215,7 +236,9 @@ void setup_fifo(const char *fifo_path)
             }
             else if (command.type == STATUS)
             {
-                //process_status_request();
+                printf("Status command received\n");
+                send_status_over_fifo();
+
             }
         }
 
@@ -244,7 +267,6 @@ void ensure_output_folder_exists(const char *folder)
         }
     }
 }
-
 int main(int argc, char *argv[])
 {
     if (argc < 2)
@@ -257,8 +279,11 @@ int main(int argc, char *argv[])
 
     ensure_output_folder_exists(output_folder);
 
+    setup_response_fifo();
+
     const char *fifo_path = "/tmp/server_fifo";
     setup_fifo(fifo_path);
+
 
     return 0;
 }

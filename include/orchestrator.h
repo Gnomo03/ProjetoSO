@@ -4,36 +4,36 @@
 #include <netinet/in.h>
 
 #define MAX_SZ 1024
+#define RESPONSE_FIFO_PATH "/tmp/response_fifo"
+#define FIFO_PATH "/tmp/server_fifo" 
 
-typedef enum
-{
+typedef enum {
     EXECUTE,
     STATUS
 } CommandType;
 
 typedef enum {
-    WAITING,
-    RUNNING,
-    COMPLETED
-} TaskState;
+    SCHEDULED,
+    EXECUTING,
+    COMPLETED,
+    FAILED
+} TaskStatus;
 
-typedef struct
-{
+typedef struct {
     CommandType type;
     int time;
     char flag[MAX_SZ];
     char args[MAX_SZ];
 } Command;
 
-typedef struct Task
-{
-    int task_id; 
+typedef struct Task {
+    int task_id;
     Command *command;
     struct Task *next;
-    TaskState state;
-    time_t start_time;
-    time_t end_time;
-
+    TaskStatus status;
+    time_t execution_time;
+    time_t start_time; 
+    time_t end_time; 
 } Task;
 
 void execute_command(const char *cmd);
@@ -42,6 +42,9 @@ void parse_command(const char *input, Command *command);
 void process_command(Command *command);
 Task *dequeue_task();
 void enqueue_task(Command *command);
-char *get_task_status();
+void setup_response_fifo();
+void send_status_over_fifo();
+Task *add_task_to_queue(int task_id);
+Task *get_next_unprocessed_task();
 
 #endif
