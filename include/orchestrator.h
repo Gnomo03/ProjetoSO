@@ -27,6 +27,7 @@ typedef struct {
 } Command;
 
 typedef struct Task {
+    int task_pid;
     int task_id;
     Command *command;
     struct Task *next;

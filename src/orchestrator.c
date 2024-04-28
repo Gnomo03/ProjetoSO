@@ -9,6 +9,7 @@
 #include <sys/wait.h>
 
 #include "../include/orchestrator.h"
+#include <sys/select.h>
 
 char *output_folder;
 int task_counter = 0;
@@ -31,12 +32,9 @@ void send_status_over_fifo() {
         return;
     }
 
-    printf("RESPONSE_FIFO opened successfully for writing.\n");
-
     Task *current = archive_queue;  // Ensure this points to the archive_queue
     if (current == NULL) {
-        printf("No tasks in the queue.\n");
-        dprintf(fd, "No tasks in the queue.\n");
+        write(fd, "No tasks in the queue.\n", 22);
         close(fd);
         return;
     }
@@ -51,7 +49,6 @@ void send_status_over_fifo() {
                (current->status == COMPLETED) ? "Completed" : "Failed");
         current = current->next;
     }
-
     close(fd);  // Close the FIFO after all writes
 }
 
@@ -94,7 +91,7 @@ void enqueue_task(Task *new_task) {
         current_archive->next = archive_task;
     }
 
-    printf("Task ID %d enqueued: %s\n", new_task->task_id, new_task->command->args);
+    // printf("Task ID %d enqueued: %s\n", new_task->task_id, new_task->command->args);
 }
 
 
@@ -109,6 +106,18 @@ Task *dequeue_task()
         Task *temp = task_queue;
         task_queue = task_queue->next;
         return temp;
+    }
+}
+
+
+void update_archive_pid(int task_id, int pid) {
+    Task *current = archive_queue;
+    while (current != NULL) {
+        if (current->task_id == task_id) {
+            current->task_pid = pid;
+            break;
+        }
+        current = current->next;
     }
 }
 
@@ -158,29 +167,21 @@ void process_command(Task *task) {
         }
         args[argc] = NULL;  // Null-terminate the args array
 
-        sleep(5);
+        printf("Running command\n");
+        // TODO: Retirar
+        sleep(10);
 
         // Execute the command
         execvp(args[0], args);
+
         // If execvp fails, print error and exit child process
         fprintf(stderr, "Failed to execute command\n");
         exit(EXIT_FAILURE);
     } else if (pid > 0) {
         // Parent process: Wait for the child to finish
-        int status;
-        waitpid(pid, &status, 0);
-
-        // Update task end time and execution time
-        task->end_time = time(NULL);
-        task->execution_time = task->end_time - task->start_time;
-
-        // Check if the child exited successfully
-        if (WIFEXITED(status) && WEXITSTATUS(status) == 0) {
-            task->status = COMPLETED;
-        } else {
-            task->status = FAILED;
-        }
-        update_archive_task_status(task->task_id, task->status); // Synchronize status in archive_queue
+        task->task_pid = pid;
+        update_archive_pid( task->task_id, pid );
+        //
     } else {
         // Fork failed
         fprintf(stderr, "Fork failed\n");
@@ -188,9 +189,45 @@ void process_command(Task *task) {
     }
 
     // Log the task execution time and final status
-    fprintf(output_file, "Task ID: %d, Execution Time: %ld seconds\n", task->task_id, (long)(task->execution_time));
+    // fprintf(output_file, "Task ID: %d, Execution Time: %ld seconds\n", task->task_id, (long)(task->execution_time));
     fclose(output_file);
 }
+
+
+void check_all_status(){
+    Task *current = archive_queue;
+    while (current != NULL) {
+        check_child_status(current);
+        current = current->next;
+    }
+}
+
+void check_child_status( Task *task ){
+    int status = 0 ;
+    if( task->task_pid != 0 ){
+        int result = waitpid( task->task_pid, &status, WNOHANG );
+        if (result == 0) {
+            // Child is still running
+            //printf("Child is still running\n");
+        } else if (result == -1) {
+            task->end_time = time(NULL);
+            task->execution_time = task->end_time - task->start_time;
+            task->status = FAILED;
+            task->task_pid = 0;
+            update_archive_task_status(task->task_id, task->status); // Synchronize status in archive_queue
+        } else {
+            // Child has terminated
+            if (WIFEXITED(status) && WEXITSTATUS(status) == 0 ) {
+                task->status = COMPLETED;
+                task->end_time = time(NULL);
+                task->execution_time = task->end_time - task->start_time;
+                task->task_pid = 0;
+                update_archive_task_status(task->task_id, task->status); // Synchronize status in archive_queue
+            }
+        }    
+    }
+}
+
 
 void parse_command(const char *input, Command *command)
 {
@@ -206,6 +243,8 @@ void parse_command(const char *input, Command *command)
     command->time = time;
     strcpy(command->args, args);
 }
+
+
 
 void setup_fifo(const char *fifo_path)
 {
@@ -226,8 +265,7 @@ void setup_fifo(const char *fifo_path)
         exit(EXIT_FAILURE);
     }
 
-    while (1)
-    {
+    while(1){
         ssize_t num_bytes_read = read(fifo_fd, buffer, MAX_SZ);
         if (num_bytes_read > 0)
         {
@@ -260,21 +298,28 @@ void setup_fifo(const char *fifo_path)
             }
             else if (command.type == STATUS)
             {
-                printf("Status command received\n");
                 send_status_over_fifo();
             }
         }
-
         // Process each task as it is dequeued
         Task *current_task = dequeue_task();
         if (current_task != NULL)
         {
             process_command(current_task);
-            free(current_task->command);
-            free(current_task);
+            // TODO: Limpar da memória quando a tarefa termina
+            //free(current_task->command);
+            //free(current_task);
+            //
         }
+        check_all_status();
+        //
+        struct timespec req, rem;
+        req.tv_sec = 0;                  // Seconds
+        req.tv_nsec = 1000 * 1000 * 100; // 100 milliseconds to nanoseconds
+        nanosleep(&req, &rem);
     }
 
+    // TODO: Free memory from task
     // Cleanup: Close and unlink the FIFO
     close(fifo_fd);
     unlink(fifo_path);
@@ -288,7 +333,7 @@ void ensure_output_folder_exists(const char *folder)
     {
         if (mkdir(folder, 0700) == -1)
         {
-            fprintf(stderr, "Error creating directory '%s': %s\n", folder, strerror(errno));
+            perror("Error creating directory");
             exit(EXIT_FAILURE);
         }
     }
