@@ -49,5 +49,6 @@ Task *add_task_to_queue(int task_id);
 Task *find_task_by_id(int task_id);
 Task *get_next_unprocessed_task();
 void update_archive_task_status(int task_id, TaskStatus new_status);
+void check_child_status( Task *task );
 
 #endif

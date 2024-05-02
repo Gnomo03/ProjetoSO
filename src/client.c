@@ -83,10 +83,9 @@ int main(int argc, char *argv[])
 
         if (strcmp(flag, "-u") == 0 || strcmp(flag, "-p") == 0)
         {
-            sleep(duration);
+            //sleep(duration);
             snprintf(command, BUFFER_SIZE, "%s %d %s \"%s\"", argv[1], duration, flag, program);
             send_command_to_server(command);
-            printf("TASK Received.\n");
         }
         else
         {

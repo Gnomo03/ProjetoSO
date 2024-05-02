@@ -39,10 +39,10 @@ void send_status_over_fifo() {
         return;
     }
     while (current != NULL) {
-        printf("Sending status: Task %d: %s\n", current->task_id,
-               (current->status == SCHEDULED) ? "Scheduled" :
-               (current->status == EXECUTING) ? "Executing" :
-               (current->status == COMPLETED) ? "Completed" : "Failed");
+        //printf("Sending status: Task %d: %s\n", current->task_id,
+        //       (current->status == SCHEDULED) ? "Scheduled" :
+        //       (current->status == EXECUTING) ? "Executing" :
+        //       (current->status == COMPLETED) ? "Completed" : "Failed");
         dprintf(fd, "Task %d: %s\n", current->task_id,
                (current->status == SCHEDULED) ? "Scheduled" :
                (current->status == EXECUTING) ? "Executing" :
@@ -91,7 +91,7 @@ void enqueue_task(Task *new_task) {
         current_archive->next = archive_task;
     }
 
-    // printf("Task ID %d enqueued: %s\n", new_task->task_id, new_task->command->args);
+    //printf("Task ID %d enqueued: %s\n", new_task->task_id, new_task->command->args);
 }
 
 
@@ -189,10 +189,9 @@ void process_command(Task *task) {
     }
 
     // Log the task execution time and final status
-    // fprintf(output_file, "Task ID: %d, Execution Time: %ld seconds\n", task->task_id, (long)(task->execution_time));
+    fprintf(output_file, "Task ID: %d, Execution Time: %ld seconds\n", task->task_id, (long)(task->execution_time));
     fclose(output_file);
 }
-
 
 void check_all_status(){
     Task *current = archive_queue;
@@ -227,7 +226,6 @@ void check_child_status( Task *task ){
         }    
     }
 }
-
 
 void parse_command(const char *input, Command *command)
 {
