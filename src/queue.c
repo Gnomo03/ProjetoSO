@@ -1,0 +1,153 @@
+#include <stdlib.h>
+#include <stdio.h>
+#include <unistd.h>
+
+#include "../include/queue.h"
+
+BOOL _stop_queue = FALSE;
+
+void update_archive_pid(int task_id, int pid) {
+    Task *current = archive_queue;
+    while (current != NULL) {
+        if (current->task_id == task_id) {
+            current->task_pid = pid;
+            break;
+        }
+        current = current->next;
+    }
+}
+
+void update_archive_task_pid_status(int task_id, int pid, TaskStatus new_status) {
+    Task *current = archive_queue;
+    while (current != NULL) {
+        if (current->task_id == task_id) {
+            if( pid > 0){
+                current->task_pid = pid;
+            }
+            current->status = new_status;
+            break;
+        }
+        current = current->next;
+    }
+}
+
+void enqueue_archive_task(Task *new_task) {
+    // Enqueue in processing queue
+    if (archive_task == NULL) {
+        archive_task = new_task;
+    } else {
+        Task *current = archive_task;
+        while (current->next != NULL) {
+            current = current->next;
+        }
+        current->next = new_task;
+    }
+}
+
+void enqueue_task(Task *new_task) {
+    // Enqueue in processing queue
+    if (task_queue == NULL) {
+        task_queue = new_task;
+    } else {
+        Task *current = task_queue;
+        while (current->next != NULL) {
+            current = current->next;
+        }
+        current->next = new_task;
+    }
+    new_task->status = SCHEDULED;
+}
+    /*
+    // Create a separate task for the archive queue to maintain a history
+    Task *archive_task = malloc(sizeof(Task));
+    if (archive_task == NULL) {
+        fprintf(stderr, "Memory allocation failed for archive task\n");
+        exit(EXIT_FAILURE);
+    }
+    *archive_task = *new_task;  // Shallow copy of the task structure
+
+    archive_task->command = malloc(sizeof(Command));
+    if (archive_task->command == NULL) {
+        fprintf(stderr, "Memory allocation failed for command in archive task\n");
+        exit(EXIT_FAILURE);
+    }
+    *archive_task->command = *new_task->command;  // Deep copy of the command
+
+    // Enqueue in archive queue
+    if (archive_queue == NULL) {
+        archive_queue = archive_task;
+    } else {
+        Task *current_archive = archive_queue;
+        while (current_archive->next != NULL) {
+            current_archive = current_archive->next;
+        }
+        current_archive->next = archive_task;
+    }
+    */
+
+    //printf("Task ID %d enqueued: %s\n", new_task->task_id, new_task->command->args);
+//}
+
+Task *dequeue_task()
+{
+    if (task_queue == NULL)
+    {
+        return NULL;
+    }
+    else
+    {
+        Task *temp = task_queue;
+        task_queue = task_queue->next;
+        return temp;
+    }
+}
+
+/// @brief Process the tasks in the queue
+void process_queue(){
+    Task *current = dequeue_task();
+    while ( current != NULL ) {
+        current->status = EXECUTING;
+        current->start_time = time(NULL);
+
+        enqueue_archive_task(current);
+
+        process_command(current, "output");
+
+        //Check if the task is still running
+        Task *temp = archive_task;
+        while( temp != NULL ){
+            if( temp->status == EXECUTING){
+                int status;
+                waitpid( temp->task_pid, &status, WNOHANG );
+                if( WIFEXITED(status)){
+                    temp->end_time = time(NULL);
+                    temp->execution_time = temp->end_time - temp->start_time;
+                    if( WEXITSTATUS(status) == 0 ){
+                        temp->status = COMPLETED;
+                    } else if( WEXITSTATUS(status) != 0 ){
+                        temp->status = FAILED;
+                    }
+                }
+            }
+            temp = temp->next;
+        }
+
+    }
+}
+
+void start_queue(){
+    while( !_stop_queue ){
+        process_queue();
+        sleep(1);
+    }
+}
+
+void stop_queue(){
+    _stop_queue = TRUE;
+}
+
+
+void x(){
+
+
+}

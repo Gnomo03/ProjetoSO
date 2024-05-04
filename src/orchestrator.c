@@ -14,9 +14,10 @@
 char *output_folder;
 int task_counter = 0;
 int max_parallel_tasks = 0;
-Task *task_queue = NULL;
-Task *archive_queue = NULL;
 
+// pipes to the child worker
+int parent2child[2];
+int child2parent[2];
 
 void setup_response_fifo() {
     unlink(RESPONSE_FIFO_PATH);
@@ -53,86 +54,8 @@ void send_status_over_fifo() {
     close(fd);  // Close the FIFO after all writes
 }
 
-void enqueue_task(Task *new_task) {
-    // Enqueue in processing queue
-    if (task_queue == NULL) {
-        task_queue = new_task;
-    } else {
-        Task *current = task_queue;
-        while (current->next != NULL) {
-            current = current->next;
-        }
-        current->next = new_task;
-    }
 
-    // Create a separate task for the archive queue to maintain a history
-    Task *archive_task = malloc(sizeof(Task));
-    if (archive_task == NULL) {
-        fprintf(stderr, "Memory allocation failed for archive task\n");
-        exit(EXIT_FAILURE);
-    }
-    *archive_task = *new_task;  // Shallow copy of the task structure
-
-    archive_task->command = malloc(sizeof(Command));
-    if (archive_task->command == NULL) {
-        fprintf(stderr, "Memory allocation failed for command in archive task\n");
-        exit(EXIT_FAILURE);
-    }
-    *archive_task->command = *new_task->command;  // Deep copy of the command
-
-    // Enqueue in archive queue
-    if (archive_queue == NULL) {
-        archive_queue = archive_task;
-    } else {
-        Task *current_archive = archive_queue;
-        while (current_archive->next != NULL) {
-            current_archive = current_archive->next;
-        }
-        current_archive->next = archive_task;
-    }
-
-    //printf("Task ID %d enqueued: %s\n", new_task->task_id, new_task->command->args);
-}
-
-
-Task *dequeue_task()
-{
-    if (task_queue == NULL)
-    {
-        return NULL;
-    }
-    else
-    {
-        Task *temp = task_queue;
-        task_queue = task_queue->next;
-        return temp;
-    }
-}
-
-
-void update_archive_pid(int task_id, int pid) {
-    Task *current = archive_queue;
-    while (current != NULL) {
-        if (current->task_id == task_id) {
-            current->task_pid = pid;
-            break;
-        }
-        current = current->next;
-    }
-}
-
-void update_archive_task_status(int task_id, TaskStatus new_status) {
-    Task *current = archive_queue;
-    while (current != NULL) {
-        if (current->task_id == task_id) {
-            current->status = new_status;
-            break;
-        }
-        current = current->next;
-    }
-}
-
-void process_command(Task *task) {
+void process_commandX(Task *task) {
     if (task == NULL) return;
 
     char output_path[MAX_SZ];
@@ -157,30 +80,9 @@ void process_command(Task *task) {
         dup2(fileno(output_file), STDOUT_FILENO);
         dup2(fileno(output_file), STDERR_FILENO);
 
-        // Parse command arguments
-        char *args[256];
-        int argc = 0;
-        char *token = strtok(task->command->args, " ");
-        while (token != NULL) {
-            args[argc++] = token;
-            token = strtok(NULL, " ");
-        }
-        args[argc] = NULL;  // Null-terminate the args array
-
-        printf("Running command\n");
-        // TODO: Retirar
-        sleep(10);
-
-        // Execute the command
-        execvp(args[0], args);
-
-        // If execvp fails, print error and exit child process
-        fprintf(stderr, "Failed to execute command\n");
-        exit(EXIT_FAILURE);
+        process_queue();
     } else if (pid > 0) {
-        // Parent process: Wait for the child to finish
-        task->task_pid = pid;
-        update_archive_pid( task->task_id, pid );
+        // Parent process: Wait for more commands
         //
     } else {
         // Fork failed
@@ -193,6 +95,7 @@ void process_command(Task *task) {
     fclose(output_file);
 }
 
+/*
 void check_all_status(){
     Task *current = archive_queue;
     while (current != NULL) {
@@ -226,6 +129,7 @@ void check_child_status( Task *task ){
         }    
     }
 }
+*/
 
 void parse_command(const char *input, Command *command){
     char cmd[MAX_SZ], args[MAX_SZ];
@@ -280,53 +184,16 @@ void setup_fifo(const char *fifo_path)
         if (num_bytes_read > 0)
         {
             buffer[num_bytes_read] = '\0';
-            Command command;
-            parse_command(buffer, &command);
-
-            if (command.type == EXECUTE)
-            {
-                Command *new_command = malloc(sizeof(Command));
-                if (new_command == NULL)
-                {
-                    fprintf(stderr, "Memory allocation failed\n");
-                    exit(EXIT_FAILURE);
-                }
-                memcpy(new_command, &command, sizeof(Command));
-
-                // Create and enqueue a new task based on the command
-                Task *new_task = malloc(sizeof(Task));
-                if (new_task == NULL) {
-                    fprintf(stderr, "Memory allocation failed for new task\n");
-                    free(new_command);  // Free previously allocated memory
-                    exit(EXIT_FAILURE);
-                }
-                new_task->command = new_command;
-                new_task->task_id = ++task_counter;
-                new_task->status = SCHEDULED;
-                new_task->next = NULL;
-                enqueue_task(new_task);
-            }
-            else if (command.type == STATUS)
-            {
-                send_status_over_fifo();
-            }
+            // Write to the pipe to the child worker
+            write( parent2child[1], buffer, strlen(buffer) );
         }
-        // Process each task as it is dequeued
-        Task *current_task = dequeue_task();
-        if (current_task != NULL)
-        {
-            process_command(current_task);
-            // TODO: Limpar da memória quando a tarefa termina
-            //free(current_task->command);
-            //free(current_task);
-            //
-        }
-        check_all_status();
-        //
+        
+        /*
         struct timespec req, rem;
         req.tv_sec = 0;                  // Seconds
         req.tv_nsec = 1000 * 1000 * 100; // 100 milliseconds to nanoseconds
-        nanosleep(&req, &rem);
+        naosleep(&req, &rem);
+        */
     }
 
     // TODO: Free memory from task
@@ -365,8 +232,36 @@ int main(int argc, char *argv[]){
     setup_response_fifo();
 
     const char *fifo_path = "/tmp/server_fifo";
-    setup_fifo(fifo_path);
+    printf("Server waiting for commands on %s\n", fifo_path);
 
+    // start the queue processing
+    if (pipe(parent_to_child) == -1 || pipe(child_to_parent) == -1) {
+        perror("pipe");
+        exit(EXIT_FAILURE);
+    }
+    //
+    pid_t pid = fork();
+    if( pid == 0 ){
+        // child process
+        close(parent_to_child[1]);  // Close unused write end
+        close(child_to_parent[0]);  // Close unused read end        
+        start_queue();
+    }
+    else if (pid > 0)
+    {
+        // parent process
+        close(parent_to_child[0]);  // Close unused read end
+        close(child_to_parent[1]);  // Close unused write end        
+        // Wait for commands
+        setup_fifo(fifo_path);
+    }
+    else{
+        fprintf(stderr, "Fork failed\n");
+        exit(EXIT_FAILURE);
+    }
+
+    close(parent_to_child[1]);  // Close write end
+    close(child_to_parent[0]);  // Close read end
 
     return 0;
 }
