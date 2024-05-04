@@ -37,6 +37,7 @@ void update_task_status(){
                     current->execution_time = current->end_time - current->start_time;
                     current->task_pid = 0;
                     current->status = FAILED;
+                    printf("Task %d failed; total time=%ld\n", current->task_id, current->execution_time);
                 } 
                 else {
                     // Child has terminated
@@ -45,9 +46,11 @@ void update_task_status(){
                         current->execution_time = current->end_time - current->start_time;
                         current->task_pid = 0;
                         if( WEXITSTATUS(status) == 0 ) {
+                            printf("Task %d completed successfully; total time=%ld\n", current->task_id, current->execution_time);
                             current->status = COMPLETED;
                         }
                         else{
+                            printf("Task %d failed; total time=%ld\n", current->task_id, current->execution_time);
                             current->status = FAILED;
                         }
                     }
@@ -100,29 +103,25 @@ void send_status_over_fifo() {
     }
 
     Task *current = archive_queue;  // Ensure this points to the archive_queue
-    if (current == NULL) {
+    Task *current_scheduled = task_queue;  // Ensure this points to the archive_queue
+    if (current == NULL && current_scheduled == NULL) {
         write(fd, "No tasks in the queue.\n", 22);
         close(fd);
         return;
     }
+    //
+    // Running or runned tasks
     while (current != NULL) {
-        //printf("Sending status: Task %d: %s\n", current->task_id,
-        //       (current->status == SCHEDULED) ? "Scheduled" :
-        //       (current->status == EXECUTING) ? "Executing" :
-        //       (current->status == COMPLETED) ? "Completed" : "Failed");
         dprintf(fd, "Task %d: %s\n", current->task_id,
                (current->status == SCHEDULED) ? "Scheduled" :
                (current->status == EXECUTING) ? "Executing" :
                (current->status == COMPLETED) ? "Completed" : "Failed");
         current = current->next;
     }
-
-    current = task_queue;  // Ensure this points to the task_queue
+    //
+    // Scheduled tasks
+    current = current_scheduled;  // Ensure this points to the task_queue
     while (current != NULL) {
-        //printf("Sending status: Task %d: %s\n", current->task_id,
-        //       (current->status == SCHEDULED) ? "Scheduled" :
-        //       (current->status == EXECUTING) ? "Executing" :
-        //       (current->status == COMPLETED) ? "Completed" : "Failed");
         dprintf(fd, "Task %d: %s\n", current->task_id,
                (current->status == SCHEDULED) ? "Scheduled" :
                (current->status == EXECUTING) ? "Executing" :
@@ -133,85 +132,6 @@ void send_status_over_fifo() {
     close(fd);  // Close the FIFO after all writes
 }
 
-/*
-void process_commandX(Task *task) {
-    if (task == NULL) return;
-
-    char output_path[MAX_SZ];
-    FILE *output_file;
-
-    // Construct output file path for the task logs
-    snprintf(output_path, MAX_SZ, "%s/execution_log_TASK%d.txt", output_folder, task->task_id);
-    output_file = fopen(output_path, "a");
-    if (output_file == NULL) {
-        fprintf(stderr, "Failed to open output file\n");
-        exit(EXIT_FAILURE);
-    }
-
-    // Update status to EXECUTING
-    task->start_time = time(NULL);
-    task->status = EXECUTING; // Update status in task_queue
-    update_archive_task_status(task->task_id, EXECUTING); // Synchronize status in archive_queue
-
-    pid_t pid = fork();
-    if (pid == 0) {
-        // Child process: Redirect stdout and stderr to output file
-        dup2(fileno(output_file), STDOUT_FILENO);
-        dup2(fileno(output_file), STDERR_FILENO);
-
-        process_queue();
-    } else if (pid > 0) {
-        // Parent process: Wait for more commands
-        //
-    } else {
-        // Fork failed
-        fprintf(stderr, "Fork failed\n");
-        exit(EXIT_FAILURE);
-    }
-
-    // Log the task execution time and final status
-    fprintf(output_file, "Task ID: %d, Execution Time: %ld seconds\n", task->task_id, (long)(task->execution_time));
-    fclose(output_file);
-}
-*/
-
-
-
-/*
-void check_all_status(){
-    Task *current = archive_queue;
-    while (current != NULL) {
-        check_child_status(current);
-        current = current->next;
-    }
-}
-
-void check_child_status( Task *task ){
-    int status = 0 ;
-    if( task->task_pid != 0 ){
-        int result = waitpid( task->task_pid, &status, WNOHANG );
-        if (result == 0) {
-            // Child is still running
-            //printf("Child is still running\n");
-        } else if (result == -1) {
-            task->end_time = time(NULL);
-            task->execution_time = task->end_time - task->start_time;
-            task->status = FAILED;
-            task->task_pid = 0;
-            update_archive_task_status(task->task_id, task->status); // Synchronize status in archive_queue
-        } else {
-            // Child has terminated
-            if (WIFEXITED(status) && WEXITSTATUS(status) == 0 ) {
-                task->status = COMPLETED;
-                task->end_time = time(NULL);
-                task->execution_time = task->end_time - task->start_time;
-                task->task_pid = 0;
-                update_archive_task_status(task->task_id, task->status); // Synchronize status in archive_queue
-            }
-        }    
-    }
-}
-*/
 
 void parse_command(const char *input, Command *command){
     char cmd[MAX_SZ], args[MAX_SZ];
@@ -244,8 +164,10 @@ void parse_command(const char *input, Command *command){
 
 
 
-
-int handle_execute(Command *command){
+/// @brief Add a task to the queue
+/// @param command 
+/// @return 0 if successful, -1 otherwise
+int schedule_task(Command *command){
     int result = 0;
 
     if (command->type == EXECUTE)
@@ -256,7 +178,7 @@ int handle_execute(Command *command){
             fprintf(stderr, "Memory allocation failed\n");
             result = EXIT_FAILURE;
         }
-        memcpy(new_command, &command, sizeof(Command));
+        memcpy(new_command, command, sizeof(Command));
 
         // Create and enqueue a new task based on the command
         Task *new_task = malloc(sizeof(Task));
@@ -270,14 +192,14 @@ int handle_execute(Command *command){
         new_task->status = SCHEDULED;
         new_task->next = NULL;
         //
-        enqueue_task( &task_queue, new_task);
+        enqueue_task( &task_queue, new_task );
     }
     return result;
 }
 
 
-
-
+/// @brief returns the number of running tasks
+/// @return 
 int get_running_tasks(){
     int running_tasks = 0;
     Task *current = archive_queue;
@@ -303,13 +225,10 @@ int handle_process_queue(){
     // Get the next task from the queue
     Task *current = dequeue_task( &task_queue );
     if( current != NULL ) {
-        current->status = EXECUTING;
-        current->start_time = time(NULL);
-
         enqueue_task( &archive_queue, current);
         process_command(current, output_folder);
 
-        result=1;
+        result = 1;
     }
     return result;
 }
@@ -344,14 +263,14 @@ void setup_fifo(const char *fifo_path)
         int nbytes = read(fifo_fd, buffer, sizeof(buffer) - 1);
         if (nbytes > 0) {
             buffer[nbytes] = '\0';  // Null-terminate the string
-            printf("Read %d bytes: %s", nbytes, buffer);
+            // printf("Read %d bytes: %s", nbytes, buffer);
             // Parse the command and add to queue
             Command command;
             parse_command(buffer, &command);
             switch (command.type)
             {
                 case EXECUTE:
-                    handle_execute(&command);
+                    schedule_task( &command );
                     break;
                 
                 case STATUS:
@@ -363,8 +282,10 @@ void setup_fifo(const char *fifo_path)
             }
 
         } else if (nbytes == -1 && (errno == EAGAIN || errno == EWOULDBLOCK)) {
+            // Debug
             printf("No data available, try again later.\n");
         } else if(nbytes == -1 ) {
+            // Error: Pipe broken
             perror("read: pipe broken\n");
             break;
         }

@@ -43,16 +43,27 @@ int process_command( Task *task, char *output_folder ) {
         }
         args[argc] = NULL;  // Null-terminate the args array
 
-        printf("Running command\n");
+        printf("Running task: id=%d; '%s'\n", task->task_id, task->command->args );
         // TODO: Retirar
         sleep(10);
         // Execute the command
         int exec_result = execvp(args[0], args+1);
+        //
+        task->end_time = time(NULL);
+        task->execution_time = task->end_time - task->start_time;
+        //
         if(exec_result == -1) {
-            fprintf(stderr, "Failed to execute command. errno=%d\n", errno);
+            fprintf(output_file, "Failed to execute command. errno=%d\n", errno);
+            fprintf(output_file, "Duration=%ld\n", task->execution_time);
+            fclose(output_file);
             exit(EXIT_FAILURE);
         }
-        exit(EXIT_SUCCESS);
+        else{
+            fprintf(output_file, "Command executed successfully\n");
+            fprintf(output_file, "Duration=%ld\n", task->execution_time);
+            fclose(output_file);
+            exit(EXIT_SUCCESS);
+        }
     }
     else if( pid > 0 ) {
         // parent process
@@ -63,7 +74,7 @@ int process_command( Task *task, char *output_folder ) {
     else {
         // Fork failed
         fprintf(stderr, "Fork failed\n");
-        //exit(EXIT_FAILURE);
+        result = -1;
     }
 
     return result;
