@@ -13,6 +13,7 @@
 
 char *output_folder;
 int task_counter = 0;
+int max_parallel_tasks = 0;
 Task *task_queue = NULL;
 Task *archive_queue = NULL;
 
@@ -51,7 +52,6 @@ void send_status_over_fifo() {
     }
     close(fd);  // Close the FIFO after all writes
 }
-
 
 void enqueue_task(Task *new_task) {
     // Enqueue in processing queue
@@ -227,22 +227,34 @@ void check_child_status( Task *task ){
     }
 }
 
-void parse_command(const char *input, Command *command)
-{
+void parse_command(const char *input, Command *command){
     char cmd[MAX_SZ], args[MAX_SZ];
     int time;
     sscanf(input, "%s %d %s \"%[^\"]\"", cmd, &time, command->flag, args);
 
-    if (strcmp(cmd, "execute") == 0)
-        command->type = EXECUTE;
+    if (strcmp(cmd, "execute") == 0){
+        if (strcmp(command->flag, "-u") == 0){
+            command->type = EXECUTE; 
+        }
+        else if (strcmp(command->flag, "-p") == 0){
+            // Conta o número de comandos separados por '|'
+            int command_count = 1;
+            for (char *p = args; *p; p++) {
+                if (*p == '|') command_count++;
+            }
+            if (command_count > max_parallel_tasks) {
+                printf("Error: Number of commands in pipeline exceeds maximum allowed (%d).\n", max_parallel_tasks);
+            } else {
+                command->type = EXECUTE;
+            }
+        }   
+    }
     else if (strcmp(cmd, "status") == 0)
         command->type = STATUS;
 
     command->time = time;
     strcpy(command->args, args);
 }
-
-
 
 void setup_fifo(const char *fifo_path)
 {
@@ -336,8 +348,8 @@ void ensure_output_folder_exists(const char *folder)
         }
     }
 }
-int main(int argc, char *argv[])
-{
+
+int main(int argc, char *argv[]){
     if (argc < 2)
     {
         fprintf(stderr, "Usage: %s output_folder\n", argv[0]);
@@ -345,6 +357,8 @@ int main(int argc, char *argv[])
     }
 
     output_folder = argv[1];
+    max_parallel_tasks = atoi(argv[2]);  // Converte a string para inteiro
+    // char *sched_policy = argv[3];
 
     ensure_output_folder_exists(output_folder);
 
