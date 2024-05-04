@@ -5,11 +5,12 @@
 #include <stdio.h>
 #include <string.h>
 #include <sys/wait.h>
+#include <errno.h>
 
-#include "../include/task.h"
+#include "task.h"
 
 int process_command( Task *task, char *output_folder ) {
-    int fd[2];    // Pipe file descriptors
+    int result = 0;
 
     // Update status to EXECUTING
     task->start_time = time(NULL);
@@ -46,26 +47,24 @@ int process_command( Task *task, char *output_folder ) {
         // TODO: Retirar
         sleep(10);
         // Execute the command
-        execvp(args[0], args);
-
-        // If execvp fails, print error and exit child process
-        fprintf(stderr, "Failed to execute command\n");
-        exit(EXIT_FAILURE);
+        int exec_result = execvp(args[0], args+1);
+        if(exec_result == -1) {
+            fprintf(stderr, "Failed to execute command. errno=%d\n", errno);
+            exit(EXIT_FAILURE);
+        }
+        exit(EXIT_SUCCESS);
     }
     else if( pid > 0 ) {
         // parent process
+        result = pid;
         task->task_pid = pid;
-        
-        // Wait for child process to complete
-        waitpid(pid, NULL, 0);
-        
-        task->status = COMPLETED;
-        task->end_time = time(NULL);
-        task->execution_time = task->end_time - task->start_time;
+        task->status = EXECUTING;
     }
-    } else {
+    else {
         // Fork failed
         fprintf(stderr, "Fork failed\n");
-        exit(EXIT_FAILURE);
+        //exit(EXIT_FAILURE);
     }
+
+    return result;
 }

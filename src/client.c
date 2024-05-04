@@ -7,7 +7,7 @@
 #include <sys/types.h>
 #include <errno.h>
 
-#include "../include/client.h"
+#include "client.h"
 
 void send_command_to_server(const char *command) {
     int fifo_fd = open(FIFO_PATH, O_WRONLY);

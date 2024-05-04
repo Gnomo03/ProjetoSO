@@ -60,6 +60,7 @@
   "files.associations": {
     "cstdlib": "c",
     "orchestrator.h": "c",
-    "time.h": "c"
+    "time.h": "c",
+    "queue.h": "c"
   }
 }

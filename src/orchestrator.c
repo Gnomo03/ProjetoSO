@@ -7,17 +7,82 @@
 #include <time.h>
 #include <errno.h>
 #include <sys/wait.h>
-
-#include "../include/orchestrator.h"
 #include <sys/select.h>
+
+#include "orchestrator.h"
+#include "queue.h"
+#include "task.h"
+
+Task *task_queue = NULL;
+Task *archive_queue = NULL;
 
 char *output_folder;
 int task_counter = 0;
 int max_parallel_tasks = 0;
 
-// pipes to the child worker
-int parent2child[2];
-int child2parent[2];
+
+/// @brief Update the status status of a task in the archive_queue
+void update_task_status(){
+    Task *current = archive_queue;
+    while (current != NULL) {
+        if (current->status == EXECUTING) {
+            int status = 0;
+            int result = waitpid(current->task_pid, &status, WNOHANG);
+            if (result == 0) {
+                // Child is still running
+            } 
+            else {
+                if (result == -1) {
+                    current->end_time = time(NULL);
+                    current->execution_time = current->end_time - current->start_time;
+                    current->task_pid = 0;
+                    current->status = FAILED;
+                } 
+                else {
+                    // Child has terminated
+                    if ( WIFEXITED(status) ){
+                        current->end_time = time(NULL);
+                        current->execution_time = current->end_time - current->start_time;
+                        current->task_pid = 0;
+                        if( WEXITSTATUS(status) == 0 ) {
+                            current->status = COMPLETED;
+                        }
+                        else{
+                            current->status = FAILED;
+                        }
+                    }
+                    else{
+                        //Running?
+                    }
+                }
+            }
+        }
+        current = current->next;
+    }
+}
+
+
+/// @brief sleeps a certain amount of milliseconds
+void sleepms( int ms ){
+    struct timespec req, rem;
+    req.tv_sec = 0;                  // Seconds
+    req.tv_nsec = 1000 * 1000 * ms; // 100 milliseconds to nanoseconds
+    nanosleep(&req, &rem);
+}
+
+
+/// @brief Set file descriptor to non-blocking mode
+int set_non_blocking(int fd) {
+    int flags = fcntl(fd, F_GETFL, 0);
+    if (flags == -1) {
+        return -1;
+    }
+    flags |= O_NONBLOCK;
+
+    int result = fcntl(fd, F_SETFL, flags);
+    return result;
+}
+
 
 void setup_response_fifo() {
     unlink(RESPONSE_FIFO_PATH);
@@ -51,10 +116,24 @@ void send_status_over_fifo() {
                (current->status == COMPLETED) ? "Completed" : "Failed");
         current = current->next;
     }
+
+    current = task_queue;  // Ensure this points to the task_queue
+    while (current != NULL) {
+        //printf("Sending status: Task %d: %s\n", current->task_id,
+        //       (current->status == SCHEDULED) ? "Scheduled" :
+        //       (current->status == EXECUTING) ? "Executing" :
+        //       (current->status == COMPLETED) ? "Completed" : "Failed");
+        dprintf(fd, "Task %d: %s\n", current->task_id,
+               (current->status == SCHEDULED) ? "Scheduled" :
+               (current->status == EXECUTING) ? "Executing" :
+               (current->status == COMPLETED) ? "Completed" : "Failed");
+        current = current->next;
+    }
+    
     close(fd);  // Close the FIFO after all writes
 }
 
-
+/*
 void process_commandX(Task *task) {
     if (task == NULL) return;
 
@@ -94,6 +173,9 @@ void process_commandX(Task *task) {
     fprintf(output_file, "Task ID: %d, Execution Time: %ld seconds\n", task->task_id, (long)(task->execution_time));
     fclose(output_file);
 }
+*/
+
+
 
 /*
 void check_all_status(){
@@ -160,9 +242,83 @@ void parse_command(const char *input, Command *command){
     strcpy(command->args, args);
 }
 
+
+
+
+int handle_execute(Command *command){
+    int result = 0;
+
+    if (command->type == EXECUTE)
+    {
+        Command *new_command = malloc(sizeof(Command));
+        if (new_command == NULL)
+        {
+            fprintf(stderr, "Memory allocation failed\n");
+            result = EXIT_FAILURE;
+        }
+        memcpy(new_command, &command, sizeof(Command));
+
+        // Create and enqueue a new task based on the command
+        Task *new_task = malloc(sizeof(Task));
+        if (new_task == NULL) {
+            fprintf(stderr, "Memory allocation failed for new task\n");
+            free(new_command);  // Free previously allocated memory
+            result = EXIT_FAILURE;
+        }
+        new_task->command = new_command;
+        new_task->task_id = ++task_counter;
+        new_task->status = SCHEDULED;
+        new_task->next = NULL;
+        //
+        enqueue_task( &task_queue, new_task);
+    }
+    return result;
+}
+
+
+
+
+int get_running_tasks(){
+    int running_tasks = 0;
+    Task *current = archive_queue;
+    while (current != NULL) {
+        if (current->status == EXECUTING) {
+            running_tasks++;
+        }
+        current = current->next;
+    }
+    return running_tasks;
+}
+
+
+
+/// @brief Process next task in queue
+int handle_process_queue(){
+    int result = 0;
+
+    // Check if the number of running tasks is less than the maximum allowed
+    if(get_running_tasks() >= max_parallel_tasks){
+        return result;
+    }
+    // Get the next task from the queue
+    Task *current = dequeue_task( &task_queue );
+    if( current != NULL ) {
+        current->status = EXECUTING;
+        current->start_time = time(NULL);
+
+        enqueue_task( &archive_queue, current);
+        process_command(current, output_folder);
+
+        result=1;
+    }
+    return result;
+}
+
+
+
+/// @brief Wait for commands main loop
 void setup_fifo(const char *fifo_path)
 {
-    char buffer[MAX_SZ];
     int fifo_fd;
 
     // Create FIFO file with appropriate permissions
@@ -179,21 +335,47 @@ void setup_fifo(const char *fifo_path)
         exit(EXIT_FAILURE);
     }
 
+    // set non-blocking mode
+    set_non_blocking(fifo_fd);
+
     while(1){
-        ssize_t num_bytes_read = read(fifo_fd, buffer, MAX_SZ);
-        if (num_bytes_read > 0)
-        {
-            buffer[num_bytes_read] = '\0';
-            // Write to the pipe to the child worker
-            write( parent2child[1], buffer, strlen(buffer) );
+        char buffer[MAX_SZ];
+        // Read from the FIFO
+        int nbytes = read(fifo_fd, buffer, sizeof(buffer) - 1);
+        if (nbytes > 0) {
+            buffer[nbytes] = '\0';  // Null-terminate the string
+            printf("Read %d bytes: %s", nbytes, buffer);
+            // Parse the command and add to queue
+            Command command;
+            parse_command(buffer, &command);
+            switch (command.type)
+            {
+                case EXECUTE:
+                    handle_execute(&command);
+                    break;
+                
+                case STATUS:
+                    send_status_over_fifo();
+                    break;
+                
+                default:
+                    break;
+            }
+
+        } else if (nbytes == -1 && (errno == EAGAIN || errno == EWOULDBLOCK)) {
+            printf("No data available, try again later.\n");
+        } else if(nbytes == -1 ) {
+            perror("read: pipe broken\n");
+            break;
         }
-        
-        /*
-        struct timespec req, rem;
-        req.tv_sec = 0;                  // Seconds
-        req.tv_nsec = 1000 * 1000 * 100; // 100 milliseconds to nanoseconds
-        naosleep(&req, &rem);
-        */
+        // update running tasks status
+        update_task_status();
+        // process next task in queue
+        if( handle_process_queue() == 0 ){
+            // No more tasks to process / or wainting for tasks to finish
+            // Sleep for some time
+            sleepms(250);
+        }
     }
 
     // TODO: Free memory from task
@@ -232,36 +414,10 @@ int main(int argc, char *argv[]){
     setup_response_fifo();
 
     const char *fifo_path = "/tmp/server_fifo";
-    printf("Server waiting for commands on %s\n", fifo_path);
+    printf("Server waiting for commands on: %s\n", fifo_path);
 
-    // start the queue processing
-    if (pipe(parent_to_child) == -1 || pipe(child_to_parent) == -1) {
-        perror("pipe");
-        exit(EXIT_FAILURE);
-    }
-    //
-    pid_t pid = fork();
-    if( pid == 0 ){
-        // child process
-        close(parent_to_child[1]);  // Close unused write end
-        close(child_to_parent[0]);  // Close unused read end        
-        start_queue();
-    }
-    else if (pid > 0)
-    {
-        // parent process
-        close(parent_to_child[0]);  // Close unused read end
-        close(child_to_parent[1]);  // Close unused write end        
-        // Wait for commands
-        setup_fifo(fifo_path);
-    }
-    else{
-        fprintf(stderr, "Fork failed\n");
-        exit(EXIT_FAILURE);
-    }
-
-    close(parent_to_child[1]);  // Close write end
-    close(child_to_parent[0]);  // Close read end
+    // Wait for commands
+    setup_fifo(fifo_path);
 
     return 0;
 }

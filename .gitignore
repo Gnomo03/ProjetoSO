@@ -1,7 +1,4 @@
 output/*
 a.txt
-src/orchestrator
-obj/orchestrator.o
-obj/client.o
-bin/orchestrator
-bin/client
+obj/*
+bin/*

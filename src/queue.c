@@ -2,12 +2,14 @@
 #include <stdio.h>
 #include <unistd.h>
 
-#include "../include/queue.h"
+#include "queue.h"
+#include "task.h"
 
-BOOL _stop_queue = FALSE;
+extern Task *task_queue;
+extern Task *archive_queue;
 
-void update_archive_pid(int task_id, int pid) {
-    Task *current = archive_queue;
+void update_pid(Task **queue, int task_id, int pid) {
+    Task *current = *queue;
     while (current != NULL) {
         if (current->task_id == task_id) {
             current->task_pid = pid;
@@ -17,8 +19,8 @@ void update_archive_pid(int task_id, int pid) {
     }
 }
 
-void update_archive_task_pid_status(int task_id, int pid, TaskStatus new_status) {
-    Task *current = archive_queue;
+void update_pid_status(Task **queue, int task_id, int pid, TaskStatus new_status) {
+    Task *current = *queue;
     while (current != NULL) {
         if (current->task_id == task_id) {
             if( pid > 0){
@@ -31,19 +33,21 @@ void update_archive_task_pid_status(int task_id, int pid, TaskStatus new_status)
     }
 }
 
-void enqueue_archive_task(Task *new_task) {
+void enqueue_task( Task **queue,  Task *new_task) {
     // Enqueue in processing queue
-    if (archive_task == NULL) {
-        archive_task = new_task;
+    if (*queue == NULL) {
+        *queue = new_task;
     } else {
-        Task *current = archive_task;
+        Task *current = *queue;
         while (current->next != NULL) {
             current = current->next;
         }
         current->next = new_task;
+        new_task->next = NULL;
     }
 }
 
+/*
 void enqueue_task(Task *new_task) {
     // Enqueue in processing queue
     if (task_queue == NULL) {
@@ -55,8 +59,8 @@ void enqueue_task(Task *new_task) {
         }
         current->next = new_task;
     }
-    new_task->status = SCHEDULED;
 }
+*/
     /*
     // Create a separate task for the archive queue to maintain a history
     Task *archive_task = malloc(sizeof(Task));
@@ -88,66 +92,16 @@ void enqueue_task(Task *new_task) {
     //printf("Task ID %d enqueued: %s\n", new_task->task_id, new_task->command->args);
 //}
 
-Task *dequeue_task()
+Task *dequeue_task( Task **queue )
 {
-    if (task_queue == NULL)
+    if (*queue == NULL)
     {
         return NULL;
     }
     else
     {
-        Task *temp = task_queue;
-        task_queue = task_queue->next;
+        Task *temp = *queue;
+        *queue = task_queue->next;
         return temp;
     }
-}
-
-/// @brief Process the tasks in the queue
-void process_queue(){
-    Task *current = dequeue_task();
-    while ( current != NULL ) {
-        current->status = EXECUTING;
-        current->start_time = time(NULL);
-
-        enqueue_archive_task(current);
-
-        process_command(current, "output");
-
-        //Check if the task is still running
-        Task *temp = archive_task;
-        while( temp != NULL ){
-            if( temp->status == EXECUTING){
-                int status;
-                waitpid( temp->task_pid, &status, WNOHANG );
-                if( WIFEXITED(status)){
-                    temp->end_time = time(NULL);
-                    temp->execution_time = temp->end_time - temp->start_time;
-                    if( WEXITSTATUS(status) == 0 ){
-                        temp->status = COMPLETED;
-                    } else if( WEXITSTATUS(status) != 0 ){
-                        temp->status = FAILED;
-                    }
-                }
-            }
-            temp = temp->next;
-        }
-
-    }
-}
-
-void start_queue(){
-    while( !_stop_queue ){
-        process_queue();
-        sleep(1);
-    }
-}
-
-void stop_queue(){
-    _stop_queue = TRUE;
-}
-
-
-void x(){
-
-
 }
