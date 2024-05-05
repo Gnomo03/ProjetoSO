@@ -5,7 +5,7 @@
       "name": "Orchestrator",
       "type": "cppdbg",
       "request": "launch",
-      "args": ["./output", "1", "FCFS"],
+      "args": ["./output", "2", "FCFS"],
       "stopAtEntry": false,
       "externalConsole": false,
       "cwd": "${workspaceFolder}",

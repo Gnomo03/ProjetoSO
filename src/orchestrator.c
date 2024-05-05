@@ -162,7 +162,52 @@ void parse_command(const char *input, Command *command){
     strcpy(command->args, args);
 }
 
+int execute_pipeline(Task *original_task) {
+    char *command_line = original_task->command->args;
+    char *command_parts[MAX_SZ]; // Assumindo MAX_SZ suficientemente grande
+    int n = 0;
+    char *token;
 
+    // Dividir a linha de comando em partes separadas por '|'
+    token = strtok(command_line, "|");
+    while (token != NULL) {
+        // Remove espaços antes e depois do comando
+        while (isspace((unsigned char)*token)) token++;  // Remove espaços iniciais
+        char *end = token + strlen(token) - 1;
+        while (end > token && isspace((unsigned char)*end)) end--;  // Remove espaços finais
+        *(end + 1) = '\0';  // Coloca o terminador de string
+
+        command_parts[n++] = token;  // Salva o comando tratado
+        token = strtok(NULL, "|");
+    }
+
+    // Criar uma nova tarefa para cada comando no pipeline
+    for (int i = 0; i < n; i++) {
+        Command *new_command = malloc(sizeof(Command));
+        if (new_command == NULL) {
+            fprintf(stderr, "Memory allocation failed for command\n");
+            return EXIT_FAILURE;
+        }
+        *new_command = *(original_task->command); // Copia informações básicas
+        strcpy(new_command->args, command_parts[i]); // Copia o comando específico
+
+        Task *new_task = malloc(sizeof(Task));
+        if (new_task == NULL) {
+            fprintf(stderr, "Memory allocation failed for task\n");
+            free(new_command); // Libera memória alocada para o comando
+            return EXIT_FAILURE;
+        }
+        new_task->command = new_command;
+        new_task->task_id = ++task_counter;
+        new_task->status = SCHEDULED;
+        new_task->next = NULL;
+
+        // Enfileira a nova tarefa
+        enqueue_task(&task_queue, new_task);
+    }
+
+    return EXIT_SUCCESS;
+}
 
 /// @brief Add a task to the queue
 /// @param command 
@@ -192,7 +237,13 @@ int schedule_task(Command *command){
         new_task->status = SCHEDULED;
         new_task->next = NULL;
         //
-        enqueue_task( &task_queue, new_task );
+        if (strcmp(command->flag, "-p") == 0) {
+            // Execute em pipeline
+            result = execute_pipeline(new_task);
+        } else {
+            // Enqueue para execução normal
+            enqueue_task(&task_queue, new_task);
+        }
     }
     return result;
 }
@@ -211,7 +262,6 @@ int get_running_tasks(){
     }
     return running_tasks;
 }
-
 
 
 /// @brief Process next task in queue
