@@ -8,6 +8,8 @@
 #include <errno.h>
 #include <sys/wait.h>
 #include <sys/select.h>
+#include <ctype.h>
+#include <sys/time.h>
 
 #include "orchestrator.h"
 #include "queue.h"
@@ -21,6 +23,36 @@ int task_counter = 0;
 int max_parallel_tasks = 0;
 
 
+long get_total_usecs( Task *task ){
+    long result = (task->end_time.tv_sec*1000000+task->end_time.tv_usec)-(task->start_time.tv_sec*1000000+task->start_time.tv_usec);
+    return result;
+}
+
+/// @brief TaskID   Inicio   Fim   Status   Tempo
+void log_task(Task *task){
+    char output_path[MAX_SZ];
+    snprintf(output_path, MAX_SZ, "%s/execution_log.txt", output_folder );
+
+    int file_exists = access(output_path, F_OK);
+
+    FILE *output_file = fopen(output_path, "a");
+    if (output_file == NULL) {
+        fprintf(stderr, "Failed to open output file\n");
+        return;
+    }
+    if( file_exists != 0 ){
+        fprintf(output_file, "TaskID\tInicio (s)\tFim (s)\tStatus\tTempo (us)\n");
+        fprintf(output_file, "===================================================\n");
+    }
+    fprintf(output_file, "%d\t%ld\t%ld\t%d\t%ld\n", 
+                         task->task_id, 
+                         task->start_time.tv_sec, 
+                         task->end_time.tv_sec, 
+                         task->status,
+                         task->execution_time_us);
+    fclose(output_file);
+}
+
 /// @brief Update the status status of a task in the archive_queue
 void update_task_status(){
     Task *current = archive_queue;
@@ -33,25 +65,28 @@ void update_task_status(){
             } 
             else {
                 if (result == -1) {
-                    current->end_time = time(NULL);
-                    current->execution_time = current->end_time - current->start_time;
+                    gettimeofday(&(current->end_time), NULL);
+                    current->execution_time_us = get_total_usecs(current);
                     current->task_pid = 0;
                     current->status = FAILED;
-                    printf("Task %d failed; total time=%ld\n", current->task_id, current->execution_time);
+                    printf("Task %d failed; total time=%ld\n", current->task_id, current->execution_time_us);
+                    log_task(current);
                 } 
                 else {
                     // Child has terminated
                     if ( WIFEXITED(status) ){
-                        current->end_time = time(NULL);
-                        current->execution_time = current->end_time - current->start_time;
+                        gettimeofday(&(current->end_time), NULL);
+                        current->execution_time_us = get_total_usecs(current);
                         current->task_pid = 0;
                         if( WEXITSTATUS(status) == 0 ) {
-                            printf("Task %d completed successfully; total time=%ld\n", current->task_id, current->execution_time);
+                            printf("Task %d completed successfully; total time=%ld\n", current->task_id, current->execution_time_us);
                             current->status = COMPLETED;
+                            log_task(current);
                         }
                         else{
-                            printf("Task %d failed; total time=%ld\n", current->task_id, current->execution_time);
+                            printf("Task %d failed; total time=%ld\n", current->task_id, current->execution_time_us);
                             current->status = FAILED;
+                            log_task(current);
                         }
                     }
                     else{
@@ -143,6 +178,10 @@ void parse_command(const char *input, Command *command){
             command->type = EXECUTE; 
         }
         else if (strcmp(command->flag, "-p") == 0){
+            command->type = EXECUTE;
+        }
+        /*
+        else if (strcmp(command->flag, "-p") == 0){
             // Conta o número de comandos separados por '|'
             int command_count = 1;
             for (char *p = args; *p; p++) {
@@ -153,7 +192,8 @@ void parse_command(const char *input, Command *command){
             } else {
                 command->type = EXECUTE;
             }
-        }   
+        } 
+        */  
     }
     else if (strcmp(cmd, "status") == 0)
         command->type = STATUS;
@@ -172,6 +212,7 @@ int execute_pipeline(Task *original_task) {
     token = strtok(command_line, "|");
     while (token != NULL) {
         // Remove espaços antes e depois do comando
+
         while (isspace((unsigned char)*token)) token++;  // Remove espaços iniciais
         char *end = token + strlen(token) - 1;
         while (end > token && isspace((unsigned char)*end)) end--;  // Remove espaços finais
@@ -236,6 +277,9 @@ int schedule_task(Command *command){
         new_task->task_id = ++task_counter;
         new_task->status = SCHEDULED;
         new_task->next = NULL;
+        // Enqueue para execução normal
+        enqueue_task(&task_queue, new_task);
+        /*
         //
         if (strcmp(command->flag, "-p") == 0) {
             // Execute em pipeline
@@ -244,6 +288,7 @@ int schedule_task(Command *command){
             // Enqueue para execução normal
             enqueue_task(&task_queue, new_task);
         }
+        */
     }
     return result;
 }
@@ -276,7 +321,7 @@ int handle_process_queue(){
     Task *current = dequeue_task( &task_queue );
     if( current != NULL ) {
         enqueue_task( &archive_queue, current);
-        process_command(current, output_folder);
+        process_task(current, output_folder);
 
         result = 1;
     }

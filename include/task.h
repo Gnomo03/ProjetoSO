@@ -32,11 +32,11 @@ typedef struct Task {
     Command *command;
     struct Task *next;
     TaskStatus status;
-    time_t execution_time;
-    time_t start_time; 
-    time_t end_time; 
+    long execution_time_us;         // in mili-seconds
+    struct timeval start_time; 
+    struct timeval end_time; 
 } Task;
 
-int process_command( Task *task, char *output_folder );
+int process_task( Task *task, char *output_folder );
 
 #endif
